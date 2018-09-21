@@ -336,6 +336,12 @@
 
     <string name="release_notes">
         \n
+        &lt;b&gt;0.2.6&lt;/b&gt;\n
+        - Neue Funktion: GPG verschlüsseltes Backup auf USB Speicher\n
+        - Fehlerbehebungen
+        \n\n
+        &lt;b&gt;0.2.5&lt;/b&gt; - Neue Tastatur Layouts und Fehlerbehebungen.
+        \n\n
         &lt;b&gt;0.2.4&lt;/b&gt;\n
         - Nutzung von superuser/root zum Zugriff auf /dev/hidg0 (USB HID device)\n
         - Neue Einstellung zum deaktivieren der USB Keyboard Ausgabe\n
@@ -567,7 +573,7 @@
     <string name="usbkbd_language_german_apple">Deutsch (Apple)</string>
     <string name="usbkbd_language_swiss_german">Deutsch (CH)</string>
     <string name="usbkbd_language_swiss_french">Französisch (CH)</string>
-    <string name="usbkbd_langauge_neo">Neo 2.0</string>
+    <string name="usbkbd_language_neo">Neo 2.0</string>
     <string-array name="usbkbd_languages_titels">
         <item>@string/usbkbd_language_default</item>
         <item>@string/usbkbd_language_english</item>
@@ -575,7 +581,7 @@
         <item>@string/usbkbd_language_german_apple</item>
         <item>@string/usbkbd_language_swiss_german</item>
         <item>@string/usbkbd_language_swiss_french</item>
-        <item>@string/usbkbd_langauge_neo</item>
+        <item>@string/usbkbd_language_neo</item>
     </string-array>
 
     <string-array name="usbkbd_languages_values">
@@ -590,8 +596,7 @@
     <string name="title_usbkbd_language">USB Keyboard Layout</string>
     <string name="credential_send_usb">User name/Passwort über USB senden</string>
     <string name="username_send_usb">User name über USB senden</string>
-    <string name="send_return_suffix">\"Enter\"-Taste nach Passwort senden</string>
-    <string name="application_id">net.tjado.passwdsafe</string>
+    <string name="send_return_suffix">\"Enter\" nach Passwort senden</string>
     <string name="use_treeview_list">Baumansicht</string>
     <string name="usbkbd_enable">Aktiviere USB Keyboard Ausgabe</string>
     <string name="usbkbd_output">USB Keyboard Ausgabe</string>
@@ -604,4 +609,39 @@
     <string name="ic_arrow_down">{gmi_chevron_down}</string>
     <string name="ic_key">{gmi_key}</string>
     <string name="ic_folder">{gmi_folder}</string>
+
+    <string name="file_backup_usb_gpg">Aktiviere GPG Backup auf USB Speicher</string>
+    <string name="file_backup_usb_gpg_info">
+        Wenn diese Funktion aktiviert ist, öffnet sich ein Backup Dialog sobald
+        ein USB Massenspeicher angeschlossen ist. Beim Drücken des \"Backup now!\"
+        Buttons, kann man ein beliebiges Verzeichnis auswählen. In diesem Verzeichnis
+        wird nach der Datei \"pubkey.asc\" gesucht, die einen GPG Public Key
+        enthalten muss. Ist diese vorhanden, wird eine Kopie der Standarddatei mit dem Key
+        verschlüsselt und im ausgewählten Verzeichnis gespeichert.
+    </string>
+
+    <string-array name="algorithms">
+        <item>MD5</item>
+        <item>SHA1</item>
+        <item>SHA256</item>
+        <item>SHA512</item>
+    </string-array>
+
+    <string name="error_camera_open">Fehler beim Öffnen der Kamera!</string>
+    <string name="otp_header">OTP</string>
+    <string name="otp_overwrite">Aktuellen OTP ersetzen? Dieser kann nicht wiederhergestellt werden!</string>
+    <string name="replace">Ersetzen</string>
+    <string name="secret">Geheimnis</string>
+    <string name="base32">(Base32)</string>
+    <string name="totp">TOTP</string>
+    <string name="hotp">HOTP</string>
+    <string name="digits">Ziffern</string>
+    <string name="algorithm">Algorithmus</string>
+    <string name="counter">Zähler</string>
+    <string name="otp_token">Token:</string>
+    <string name="add_otp_manually">OTP manuell hinzufügen</string>
+    <string name="add_otp_camera">OTP QR Code scannen</string>
+    <string name="send_delimiter_return">Enter</string>
+    <string name="send_delimiter_tab">Tab</string>
+    <string name="send_delimiter_desc">Trennzeichen:></string>
 </resources>

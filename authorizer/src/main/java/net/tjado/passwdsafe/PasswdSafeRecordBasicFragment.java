@@ -8,11 +8,18 @@
 package net.tjado.passwdsafe;
 
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.os.CountDownTimer;
 import android.support.annotation.NonNull;
+import android.support.annotation.Nullable;
+import android.support.v4.app.ActivityCompat;
 import android.view.ContextMenu;
 import android.view.LayoutInflater;
 import android.view.Menu;
@@ -24,27 +31,39 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.CheckBox;
 import android.widget.ListView;
+import android.widget.ProgressBar;
+import android.widget.RadioGroup;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Button;
 import android.content.DialogInterface;
 
+import net.tjado.passwdsafe.file.PasswdFileData;
+import net.tjado.passwdsafe.file.PasswdHistory;
 import net.tjado.passwdsafe.lib.PasswdSafeUtil;
 import net.tjado.passwdsafe.lib.view.GuiUtils;
 import net.tjado.passwdsafe.lib.ObjectHolder;
+import net.tjado.passwdsafe.otp.AddActivity;
+import net.tjado.passwdsafe.otp.ScanActivity;
+import net.tjado.passwdsafe.otp.Token;
+import net.tjado.passwdsafe.otp.TokenCode;
+import net.tjado.passwdsafe.util.Pair;
 import net.tjado.passwdsafe.view.CopyField;
 import net.tjado.passwdsafe.view.PasswdLocation;
 import net.tjado.passwdsafe.lib.view.TypefaceUtils;
 
 import net.tjado.authorizer.OutputInterface;
-import net.tjado.authorizer.OutputKeyboard;
 import net.tjado.authorizer.OutputKeyboardAsRoot;
 
 import org.pwsafe.lib.file.PwsRecord;
 
+import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Pattern;
+
+import static android.app.Activity.RESULT_OK;
 
 
 /**
@@ -54,6 +73,8 @@ public class PasswdSafeRecordBasicFragment
         extends AbstractPasswdSafeRecordFragment
         implements View.OnClickListener
 {
+    private static final String TAG = "PasswdSafeRecordBasicFragment";
+
     private boolean itsIsPasswordShown = false;
     private String itsHiddenPasswordStr;
     private String itsTitle;
@@ -70,6 +91,8 @@ public class PasswdSafeRecordBasicFragment
     private Button itsUsernameSend;
     private Button itsCredentialSend;
     private Button itsPasswordSend;
+    private CheckBox itsSendReturnSuffix;
+    private RadioGroup itsSendDelimiter;
     private View itsUrlRow;
     private TextView itsUrl;
     private View itsEmailRow;
@@ -82,6 +105,19 @@ public class PasswdSafeRecordBasicFragment
     private View itsProtectedRow;
     private View itsReferencesRow;
     private ListView itsReferences;
+    private Button itsOtpAdd;
+    private Button itsOtpAddCamera;
+    private TokenCode itsOtp;
+    private TextView itsOtpCode;
+    private ProgressBar itsOtpTimer;
+    private View itsOtpTokenRow;
+
+    private boolean itsOtpConfirmation;
+
+    private String SUB_OTP;
+    private String SUB_TAB;
+    private String SUB_RETURN;
+    private final int PERMISSIONS_REQUEST_CAMERA = 1;
 
     /**
      * Create a new instance of the fragment
@@ -198,12 +234,16 @@ public class PasswdSafeRecordBasicFragment
             }
         });
 
+
+        itsSendReturnSuffix = (CheckBox) root.findViewById(R.id.send_return_suffix);
+        itsSendDelimiter = (RadioGroup) root.findViewById(R.id.send_delimiter);
         SharedPreferences prefs = Preferences.getSharedPrefs(getContext());
-        if ( Preferences.getUsbkbdEnabled(prefs) != true ) {
+        if ( ! Preferences.getUsbkbdEnabled(prefs)) {
             itsUsernameSend.setVisibility(View.GONE);
             itsCredentialSend.setVisibility(View.GONE);
             itsPasswordSend.setVisibility(View.GONE);
-            ((CheckBox) root.findViewById(R.id.send_return_suffix)).setVisibility(View.GONE);
+            itsSendReturnSuffix.setVisibility(View.GONE);
+            itsSendDelimiter.setVisibility(View.GONE);
         }
 
         itsUrlRow = root.findViewById(R.id.url_row);
@@ -232,7 +272,114 @@ public class PasswdSafeRecordBasicFragment
         registerForContextMenu(itsUserRow);
         registerForContextMenu(itsPasswordRow);
 
+
+        itsOtpAdd = (Button)root.findViewById(R.id.otp_new);
+        itsOtpAdd.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                startOtpAddActivity(true);
+            }
+        });
+
+        itsOtpAddCamera = (Button)root.findViewById(R.id.otp_new_camera);
+        itsOtpAddCamera.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                startOtpAddActivity(false);
+            }
+        });
+
+
+        itsOtpCode = (TextView)root.findViewById(R.id.otp_code);
+
+        itsOtpTimer = (ProgressBar)root.findViewById(R.id.otp_time);
+        itsOtpTokenRow = root.findViewById(R.id.otp_token_row);
+
+        itsOtpCode.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                generateOtpToken();
+            }
+        });
+
+        SUB_OTP = getResources().getString(R.string.SUB_OTP);
+        SUB_TAB = getResources().getString(R.string.SUB_TAB);
+        SUB_RETURN = getResources().getString(R.string.SUB_RETURN);
+
         return root;
+    }
+
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+        // Check which request we're responding to
+        if (requestCode == 1) {
+            // Make sure the request was successful
+            if (resultCode == RESULT_OK) {
+                saveOtpChange(data.getExtras().getString("uri"), false);
+                //PasswdSafeUtil.dbginfo("OTP", String.format("Store manual otp uri: %s", data.getExtras().getString("uri")));
+            }
+        } else if (requestCode == 2) {
+            // Make sure the request was successful
+            if (resultCode == RESULT_OK) {
+                saveOtpChange(data.getExtras().getString("uri"), false);
+                //PasswdSafeUtil.dbginfo("OTP", String.format("Store camera otp uri: %s", data.getExtras().getString("uri")));
+            }
+        }
+    }
+
+    private void saveOtpChange(final String otpUri, final boolean counterUpdate) {
+        final ObjectHolder<Pair<Boolean, PasswdLocation>> rc = new ObjectHolder<>();
+        useRecordFile(new RecordFileUser()
+        {
+            @Override
+            public void useFile(@Nullable RecordInfo info,
+                                @NonNull PasswdFileData fileData)
+            {
+
+                PwsRecord record;
+                boolean newRecord;
+                if (info != null) {
+                    record = info.itsRec;
+                    newRecord = false;
+                } else {
+                    record = fileData.createRecord();
+                    record.setLoaded();
+                    newRecord = true;
+                }
+
+                if( fileData.isProtected(record)) {
+                    return;
+                }
+
+                String oldOtp = fileData.getOtp(record);
+                if (!otpUri.equals(oldOtp)) {
+                    fileData.setOtp(otpUri, record);
+
+                    PasswdHistory hist = fileData.getPasswdHistory(record);
+                    if (oldOtp != null && !oldOtp.equals("") && hist != null && !counterUpdate) {
+                        Date passwdDate = fileData.getPasswdLastModTime(record);
+                        if (passwdDate == null) {
+                            passwdDate = fileData.getCreationTime(record);
+                        }
+
+                        hist.addPasswd(oldOtp, passwdDate);
+                        fileData.setPasswdHistory(hist, record, true);
+                    }
+                }
+
+                if (newRecord) {
+                    fileData.addRecord(record);
+                }
+
+                rc.set(new Pair<>((newRecord || record.isModified()), new PasswdLocation(record, fileData)));
+
+            }
+        });
+
+        if (rc == null || rc.get() == null) {
+            return;
+        }
+        getListener().finishEditRecord(rc.get().first, rc.get().second, false);
     }
 
     @Override
@@ -359,6 +506,7 @@ public class PasswdSafeRecordBasicFragment
         int hiddenId = R.string.hidden_password_normal;
         String url = null;
         String email = null;
+        String otp = null;
         Date creationTime = null;
         Date lastModTime = null;
         switch (info.itsPasswdRec.getType()) {
@@ -366,6 +514,7 @@ public class PasswdSafeRecordBasicFragment
             itsBaseRow.setVisibility(View.GONE);
             url = info.itsFileData.getURL(info.itsRec);
             email = info.itsFileData.getEmail(info.itsRec);
+            otp = info.itsFileData.getOtp(info.itsRec);
             creationTime = info.itsFileData.getCreationTime(info.itsRec);
             lastModTime = info.itsFileData.getLastModTime(info.itsRec);
             break;
@@ -378,6 +527,7 @@ public class PasswdSafeRecordBasicFragment
             recForPassword = ref;
             url = info.itsFileData.getURL(info.itsRec);
             email = info.itsFileData.getEmail(info.itsRec);
+            otp = info.itsFileData.getOtp(info.itsRec);
             creationTime = info.itsFileData.getCreationTime(recForPassword);
             lastModTime = info.itsFileData.getLastModTime(recForPassword);
             break;
@@ -411,6 +561,10 @@ public class PasswdSafeRecordBasicFragment
         setFieldText(itsUrl, itsUrlRow, url);
         setFieldText(itsEmail, itsEmailRow, email);
 
+        if (otp != null && !otp.equals("")) {
+            itsOtpTokenRow.setVisibility(View.VISIBLE);
+        }
+
         GuiUtils.setVisible(itsTimesRow,
                             (creationTime != null) || (lastModTime != null));
         setFieldDate(itsCreationTime, itsCreationTimeRow, creationTime);
@@ -435,6 +589,53 @@ public class PasswdSafeRecordBasicFragment
         GuiUtils.setVisible(itsReferencesRow, hasReferences);
 
         GuiUtils.invalidateOptionsMenu(getActivity());
+    }
+
+    private void generateOtpToken() {
+        String otp = getOtp();
+
+        Token token = null;
+        try {
+            PasswdSafeUtil.dbginfo("OTP", String.format("LOAD OTP: %s", otp));
+            token = new Token(otp,false);
+            itsOtp = token.generateCodes();
+
+            if (token.getType() == Token.TokenType.HOTP) {
+                PasswdSafeUtil.dbginfo("OTP", String.format("Saving incremented HOTP counter: %d", token.getCounter()));
+                saveOtpChange(token.toString(), true);
+            }
+            setFieldText(itsOtpCode, null, itsOtp.getCurrentCode());
+
+            itsOtpTimer.setProgress(itsOtp.getCurrentProgress());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        CountDownTimer otpTimeCountDown;
+        otpTimeCountDown = new CountDownTimer(30000,500) {
+            @Override
+            public void onTick(long millisUntilFinished) {
+                String currentCode = itsOtp.getCurrentCode();
+                int currentProgress = itsOtp.getCurrentProgress();
+
+                if (currentCode == null) {
+                    setFieldText(itsOtpCode, null, "------");
+                    itsOtpTimer.setProgress(0);
+                    cancel();
+
+                    return;
+                }
+
+                itsOtpTimer.setProgress( currentProgress );
+                setFieldText(itsOtpCode, null, currentCode );
+            }
+
+            @Override
+            public void onFinish() {
+                start();
+            }
+        };
+        otpTimeCountDown.start();
     }
 
     /**
@@ -503,37 +704,86 @@ public class PasswdSafeRecordBasicFragment
     private void sendCredentialUsb(OutputInterface.Language lang,
                                    Boolean sendUsername, Boolean sendPassword)
     {
-
         String username = getUsername();
         String password = getPassword();
-        CheckBox cb_send_return = (CheckBox) getView().findViewById(R.id.send_return_suffix);
+        String quoteSubReturn = Pattern.quote(SUB_RETURN);
+        String quoteSubTab = Pattern.quote(SUB_TAB);
 
         try {
             OutputInterface ct = new OutputKeyboardAsRoot(lang);
 
+            boolean otpTokenGenerated = false;
             if( sendUsername == true && username != null ) {
-                int ret = ct.sendText(username);
+                if (username.contains(SUB_OTP)){
+                    generateOtpToken();
+                    otpTokenGenerated = true;
 
-                if (ret == 1) {
-                    PasswdSafeUtil.showErrorMsg(
-                            "Lost characters in output due to missing mapping!",
-                            getContext());
+                    username = username.replace(SUB_OTP, itsOtp.getCurrentCode());
+                }
+
+                String[] usernameArray = username.split(String.format("((?<=(%1$s|%2$s))|(?=(%1$s|%2$s)))", quoteSubReturn, quoteSubTab));
+                PasswdSafeUtil.dbginfo(TAG, "Username Substitution Array: %s".format(Arrays.toString(usernameArray)));
+
+                int ret = 0;
+                for (String str : usernameArray){
+
+                    if (str.equals(SUB_RETURN)) {
+                        ct.sendReturn();
+                    } else if (str.equals(SUB_TAB)) {
+                        ct.sendTabulator();
+                    } else {
+                        ret = ct.sendText(str);
+                    }
+
+                    if (ret == 1) {
+                        PasswdSafeUtil.showErrorMsg(
+                                "Lost characters in output due to missing mapping!",
+                                getContext());
+                    }
                 }
             }
 
             if( sendUsername && sendPassword )
             {
-                ct.sendTabulator();
+                int checkedId = itsSendDelimiter.getCheckedRadioButtonId();
+                if (checkedId == R.id.send_delimiter_return) {
+                    ct.sendReturn();
+                } else if (checkedId == R.id.send_delimiter_tab) {
+                    ct.sendTabulator();
+                }
             }
 
             if( sendPassword && password != null ) {
+                if (password.contains(SUB_OTP)){
+                    if (otpTokenGenerated == false) {
+                        generateOtpToken();
+                    }
 
-                int ret = ct.sendText(password);
-                if( ret == 1 ) {
-                    PasswdSafeUtil.showErrorMsg("Lost characters in output due to missing mapping!", getContext());
+                    password = password.replace(SUB_OTP, itsOtp.getCurrentCode());
                 }
 
-                if( cb_send_return.isChecked() ) {
+                String[] passwordArray = password.split(String.format("((?<=(%1$s|%2$s))|(?=(%1$s|%2$s)))", quoteSubReturn, quoteSubTab));
+                PasswdSafeUtil.dbginfo(TAG, "Password Substitution Array: %s".format(Arrays.toString(passwordArray)));
+
+                int ret = 0;
+                for (String str : passwordArray){
+
+                    if (str.equals(SUB_RETURN)) {
+                        ct.sendReturn();
+                    } else if (str.equals(SUB_TAB)) {
+                        ct.sendTabulator();
+                    } else {
+                        ret = ct.sendText(str);
+                    }
+
+                    if (ret == 1) {
+                        PasswdSafeUtil.showErrorMsg(
+                                "Lost characters in output due to missing mapping!",
+                                getContext());
+                    }
+                }
+
+                if( itsSendReturnSuffix.isChecked() ) {
                     ct.sendReturn();
                 }
             }
@@ -587,6 +837,75 @@ public class PasswdSafeRecordBasicFragment
         AlertDialog dialog = builder.create();
         // Display the alert dialog on interface
         dialog.show();
+    }
+
+    private void startOtpAddActivity(final boolean manual) {
+        if (hasOtp()) {
+            Context ctx = getContext();
+            LayoutInflater factory = LayoutInflater.from(ctx);
+            View dlgView = factory.inflate(R.layout.confirm_prompt, null);
+
+            final CheckBox itsConfirmCb = (CheckBox)dlgView.findViewById(R.id.confirm);
+            AlertDialog.Builder alert = new AlertDialog.Builder(ctx)
+                    .setTitle(getString(R.string.otp_overwrite))
+                    .setView(dlgView)
+                    .setPositiveButton(R.string.replace, new DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(DialogInterface dialog, int whichButton) {
+                            if (itsConfirmCb.isChecked()) {
+                                if(manual) {
+                                    startOtpManualAddActivity();
+                                } else {
+                                    checkAndStartOtpCameraAddActivity();
+                                }
+                            }
+                        }
+                    })
+                    .setNegativeButton(R.string.cancel, null);
+            alert.show();
+        } else if (manual) {
+            startOtpManualAddActivity();
+        } else {
+            checkAndStartOtpCameraAddActivity();
+        }
+    }
+
+    private void startOtpManualAddActivity() {
+        Intent intent = new Intent(getActivity(), AddActivity.class);
+        startActivityForResult(intent, 1);
+    }
+
+    private void startOtpCameraAddActivity() {
+        Intent intent = new Intent(getActivity(), ScanActivity.class);
+        startActivityForResult(intent, 2);
+
+        getActivity().overridePendingTransition(R.xml.fadein, R.xml.fadeout);
+    }
+
+    private void checkAndStartOtpCameraAddActivity() {
+        if (ActivityCompat.checkSelfPermission(getContext(), android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.CAMERA}, PERMISSIONS_REQUEST_CAMERA);
+        }
+        else {
+            // permission is already granted
+            startOtpCameraAddActivity();
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode,
+                                           String permissions[], int[] grantResults) {
+        switch (requestCode) {
+        case PERMISSIONS_REQUEST_CAMERA: {
+            if (grantResults.length > 0
+                && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                startOtpCameraAddActivity();
+            } //else {
+            //Toast.makeText(MainActivity.this, R.string.error_permission_camera_open, Toast.LENGTH_LONG).show();
+            //}
+            return;
+        }
+        }
     }
 
     /**
@@ -653,5 +972,43 @@ public class PasswdSafeRecordBasicFragment
             }
         });
         return password.get();
+    }
+
+    /**
+     * Get the otp
+     */
+    private String getOtp()
+    {
+        final ObjectHolder<String> otp = new ObjectHolder<>();
+        useRecordInfo(new RecordInfoUser()
+        {
+            @Override
+            public void useRecordInfo(@NonNull RecordInfo info)
+            {
+                otp.set(info.itsFileData.getOtp(info.itsRec));
+            }
+        });
+        return otp.get();
+    }
+
+    /**
+     * Check if otp is set
+     */
+    private boolean hasOtp()
+    {
+        final ObjectHolder<Boolean> otp = new ObjectHolder<>();
+        useRecordInfo(new RecordInfoUser()
+        {
+            @Override
+            public void useRecordInfo(@NonNull RecordInfo info)
+            {
+                otp.set(false);
+                String otpUri = info.itsFileData.getOtp(info.itsRec);
+                if (otpUri != null && !otpUri.equals("")) {
+                    otp.set(true);
+                }
+            }
+        });
+        return otp.get();
     }
 }
